@@ -1,0 +1,45 @@
+name: RISC-V Release
+
+on:
+  push:
+    tags:
+      - "riscv-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: [self-hosted, RISCV64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: |
+          cmake -G Ninja -S llvm -B build \
+            -DLLVM_ENABLE_PROJECTS="clang" \
+            -DLLVM_TARGETS_TO_BUILD="RISCV" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr
+
+      - name: Build
+        run: |
+          ninja -C build -j$(nproc)
+
+      - name: Install to staging
+        run: |
+          DESTDIR=$PWD/install ninja -C build install
+
+      - name: Strip binaries
+        run: |
+          find install -type f -executable -exec strip --strip-unneeded {} + || true
+
+      - name: Package
+        run: |
+          tar -C install -czf llvm-riscv64-${{ github.ref_name }}.tar.gz .
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: llvm-riscv64-*.tar.gz
