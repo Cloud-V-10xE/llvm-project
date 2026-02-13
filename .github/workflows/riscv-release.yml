@@ -1,10 +1,10 @@
 name: RISC-V Release
 
 on:
+  workflow_dispatch: 
   push:
     tags:
       - "riscv-v*"
-  workflow_dispatch: 
 
 permissions:
   contents: write
@@ -14,33 +14,70 @@ jobs:
     runs-on: [self-hosted, RISCV64]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Configure
+      - name: Install dependencies (glibc or musl)
+        shell: bash
+        run: |
+          if command -v apt >/dev/null 2>&1; then
+            sudo apt update
+            sudo apt install -y \
+              build-essential \
+              cmake \
+              ninja-build \
+              git \
+              python3 \
+              python3-pip \
+              libtinfo-dev \
+              libz-dev \
+              libxml2-dev
+          elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf groupinstall -y "Development Tools"
+            sudo dnf install -y \
+              cmake \
+              ninja-build \
+              git \
+              python3 \
+              ncurses-devel \
+              zlib-devel \
+              libxml2-devel
+          elif command -v apk >/dev/null 2>&1; then
+            sudo apk add --no-cache \
+              build-base \
+              cmake \
+              ninja \
+              git \
+              python3 \
+              zlib-dev \
+              ncurses-dev \
+              libxml2-dev
+          else
+            echo "Unsupported distribution"
+            exit 1
+          fi
+
+      - name: Configure LLVM
         run: |
           cmake -G Ninja -S llvm -B build \
             -DLLVM_ENABLE_PROJECTS="clang" \
             -DLLVM_TARGETS_TO_BUILD="RISCV" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr
+            -DCMAKE_INSTALL_PREFIX=$PWD/install
 
       - name: Build
         run: |
-          ninja -C build -j$(nproc)
+          ninja -C build
 
-      - name: Install to staging
+      - name: Install
         run: |
-          DESTDIR=$PWD/install ninja -C build install
-
-      - name: Strip binaries
-        run: |
-          find install -type f -executable -exec strip --strip-unneeded {} + || true
+          ninja -C build install
 
       - name: Package
         run: |
-          tar -C install -czf llvm-riscv64-${{ github.ref_name }}.tar.gz .
+          tar -czf llvm-riscv64-${{ github.ref_name }}.tar.gz install
 
-      - name: Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: llvm-riscv64-*.tar.gz
